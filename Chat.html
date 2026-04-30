@@ -132,21 +132,33 @@ function App() {
   useEffect(() => { try { localStorage.setItem(COUNT_KEY, String(freeCount)); } catch(e){} }, [freeCount]);
   useEffect(() => { if (bottomRef.current) bottomRef.current.parentElement.scrollTop = 999999; }, [messages, typing]);
 
-  const send = (text) => {
-    const q = (text || input).trim();
-    if (!q) return;
-    if (freeCount >= FREE_LIMIT) { setShowPaywall(true); return; }
-    const newCount = freeCount + 1;
-    setFreeCount(newCount);
-    setInput('');
-    setMessages(prev => [...prev, {id:Date.now(),role:'user',text:q}]);
-    setTyping(true);
-    setTimeout(() => {
-      setTyping(false);
-      setMessages(prev => [...prev, {id:Date.now()+1,role:'ai',text:getResponse(q)}]);
-      if (newCount >= FREE_LIMIT) setTimeout(() => setShowPaywall(true), 1200);
-    }, 1100 + Math.random()*600);
-  };
+  const send = async (text) => {
+  const q = (text || input).trim();
+  if (!q) return;
+  if (freeCount >= FREE_LIMIT) { setShowPaywall(true); return; }
+
+  const newCount = freeCount + 1;
+  setFreeCount(newCount);
+  setInput('');
+  setMessages(prev => [...prev, { id: Date.now(), role: 'user', text: q }]);
+  setTyping(true);
+
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: q, history: chatHistory })
+    });
+    const data = await res.json();
+    setTyping(false);
+    setMessages(prev => [...prev, { id: Date.now() + 1, role: 'ai', text: data.text }]);
+    setChatHistory(data.history);
+    if (newCount >= FREE_LIMIT) setTimeout(() => setShowPaywall(true), 1200);
+  } catch (err) {
+    setTyping(false);
+    setMessages(prev => [...prev, { id: Date.now() + 1, role: 'ai', text: '通信エラーが発生しました。もう一度お試しください。' }]);
+  }
+};
 
   const remaining = FREE_LIMIT - freeCount;
 

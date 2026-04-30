@@ -11,10 +11,12 @@
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 <script type="text/babel" src="tweaks-panel.jsx"></script>
 <style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 html, body, #root { height: 100%; }
-body { font-family: 'Space Grotesk', 'Noto Sans JP', sans-serif; }
-::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: oklch(0.25 0.015 240); border-radius: 3px; }
+body { font-family: 'Space Grotesk', 'Noto Sans JP', sans-serif; -webkit-font-smoothing: antialiased; }
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: oklch(0.78 0.006 240); border-radius: 3px; }
 </style>
 </head>
 <body>
@@ -22,256 +24,345 @@ body { font-family: 'Space Grotesk', 'Noto Sans JP', sans-serif; }
 <script type="text/babel">
 const { useState, useRef, useEffect } = React;
 
-const FREE_LIMIT = 100;
-const STORAGE_KEY = 'fsai_messages';
+const FREE_LIMIT  = 100;
+const MSG_KEY     = 'fsai_messages_v2';
 const COUNT_KEY   = 'fsai_free_count';
+const HIST_KEY    = 'fsai_history';
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
-  "theme": "arctic",
-  "ariaName": "ARIA",
-  "showFreeCounter": true
+  "theme": "arctic"
 }/*EDITMODE-END*/;
 
+/* ── カラーテーマ ── */
 const THEMES = {
-  ice: {
-    bg:'oklch(0.09 0.020 240)', bg2:'oklch(0.13 0.020 240)', bg3:'oklch(0.17 0.018 238)',
-    accent:'oklch(0.70 0.16 200)', accent2:'oklch(0.55 0.16 200)', violet:'oklch(0.68 0.16 270)',
-    text:'oklch(0.97 0.005 240)', muted:'oklch(0.55 0.010 240)', border:'oklch(0.22 0.013 240)',
-  },
-  midnight: {
-    bg:'oklch(0.08 0.025 280)', bg2:'oklch(0.12 0.025 280)', bg3:'oklch(0.16 0.022 278)',
-    accent:'oklch(0.72 0.18 290)', accent2:'oklch(0.58 0.18 290)', violet:'oklch(0.65 0.20 310)',
-    text:'oklch(0.97 0.005 280)', muted:'oklch(0.55 0.012 280)', border:'oklch(0.22 0.018 280)',
-  },
   arctic: {
-    bg:'oklch(0.97 0.008 220)', bg2:'oklch(0.93 0.008 220)', bg3:'oklch(0.89 0.008 220)',
-    accent:'oklch(0.48 0.16 200)', accent2:'oklch(0.38 0.16 200)', violet:'oklch(0.50 0.16 270)',
-    text:'oklch(0.12 0.020 240)', muted:'oklch(0.45 0.010 240)', border:'oklch(0.82 0.006 240)',
+    bg:      'oklch(0.97 0.008 220)',
+    bg2:     'oklch(0.93 0.008 220)',
+    bg3:     'oklch(0.89 0.008 220)',
+    accent:  'oklch(0.48 0.16 200)',
+    accent2: 'oklch(0.38 0.16 200)',
+    violet:  'oklch(0.50 0.16 270)',
+    text:    'oklch(0.12 0.020 240)',
+    muted:   'oklch(0.45 0.010 240)',
+    border:  'oklch(0.82 0.006 240)',
+    userBub: 'oklch(0.48 0.16 200)',
+    userTxt: 'white',
   },
 };
 
 const SUGGESTIONS = [
-  '四回転サルコウって何？','坂本花織選手ってどんな人？',
-  'GOEの仕組みを教えて','ループとフリップの違いは？',
-  'ネイサン・チェンの代表的な演技は？','PCSって何を評価するの？',
+  '四回転サルコウって何？',
+  '坂本花織選手ってどんな人？',
+  'GOEの仕組みを教えて',
+  'ループとフリップの違いは？',
+  'ネイサン・チェンの代表的な演技は？',
+  'PCSって何を評価するの？',
 ];
 
-const ARIA_RESPONSES = {
-  '四回転サルコウ': `**四回転サルコウ（4S）**とは、右後外エッジから踏み切り、空中で4回転して着氷するジャンプです。\n\n**特徴：**\n- トウを使わない「エッジジャンプ」\n- 4回転の中では比較的習得しやすい部類\n- 基礎点は**9.70点**（クリーンな場合）\n\n羽生結弦選手や宇野昌磨選手が得意としています。`,
-  '坂本花織': `**坂本花織**選手（1999年4月9日生まれ、兵庫県神戸市出身）は世界選手権3連覇（2022〜2024年）を達成した日本のエースです。\n\n**主な実績：**\n- 世界選手権 3連覇（2022・2023・2024年）\n- グランプリファイナル優勝（2022年）\n\n**スタイルの特徴：**\n力強いスケーティングと伸びやかな表現力が武器。GOEを高く稼ぐ3Aも安定しています。`,
-  'GOE': `**GOE（Grade of Execution）** とは、各ジャンプ・スピン・ステップなどの「出来栄え点」です。\n\n**評価範囲：** −5 〜 +5（9段階）\n\n加点要因には高さ・速度・流れがあり、減点要因には転倒・手つきなどがあります。複数ジャッジの点数のトリム平均で計算されます。`,
-  'ループ': `**ループ（Lo）とフリップ（F）の違い：**\n\n- **ループ**：右後外エッジから踏み切るエッジジャンプ。比較的シンプルな軸。\n- **フリップ**：左後内エッジ＋右トウの「コンビジャンプ」。エッジミス（フラップ）が問題になりやすい。\n\n見分け方は踏み切り前の姿勢。フリップは背中側からトウを刺します。`,
-  'フリップ': `**フリップ（F）**は、左後内エッジに右トウを刺して踏み切るコンビネーションジャンプです。\n\nループとの違いは踏み切りのエッジ。フリップは**内エッジ**、ループは**外エッジ**から跳びます。エッジミスの「フラップ」になりやすく、ジャッジも厳しくチェックします。`,
-  'ネイサン': `**ネイサン・チェン**選手（2000年生まれ、アメリカ）は2022年北京五輪の金メダリストです。\n\n**特徴：**\n- 4回転を6本組み込む「クワッドキング」\n- フリー世界最高得点保持者（当時）\n\n引退後はイェール大学に進学し医学の道を志しています。競技復帰の可能性も示唆しています。`,
-  'PCS': `**PCS（Program Component Score）** は、演技全体の質を評価する点数です。\n\n**5つの評価項目：**\n- スケーティングスキル\n- トランジション\n- パフォーマンス\n- コンポジション\n- インタープリテーション\n\n各10点満点で採点。技術点（TES）と合算して総合得点になります。`,
-  'default': `ご質問ありがとうございます！フィギュアスケートのことなら何でもお答えします⛸\n\n技術・ルール・選手・試合情報など、もう少し詳しく教えていただけますか？より的確な情報をお伝えします。`,
-};
-
-function getResponse(q) {
-  for (const [key, val] of Object.entries(ARIA_RESPONSES)) {
-    if (key !== 'default' && q.includes(key)) return val;
-  }
-  return ARIA_RESPONSES.default;
-}
-
+/* ── Markdownっぽい簡易レンダラー ── */
 function renderMD(text, accent, textColor) {
   return text.split('\n').map((line, i) => {
-    if (!line) return <br key={i}/>;
-    const parts = line.replace(/\*\*([^*]+)\*\*/g, '%%BOLD%%$1%%BOLD%%').split('%%BOLD%%');
-    const el = parts.map((p, j) => j % 2 === 1
-      ? <strong key={j} style={{color:accent,fontWeight:700}}>{p}</strong>
-      : p
+    if (!line.trim()) return <br key={i} />;
+    const parts = line.split(/(\*\*[^*]+\*\*)/g).map((p, j) =>
+      p.startsWith('**') && p.endsWith('**')
+        ? <strong key={j} style={{ color: accent, fontWeight: 700 }}>{p.slice(2, -2)}</strong>
+        : p
     );
-    if (line.startsWith('- ')) return <div key={i} style={{display:'flex',gap:8,marginBottom:2,paddingLeft:4}}><span style={{color:accent,flexShrink:0}}>·</span><span>{el.slice(1)}</span></div>;
-    return <p key={i} style={{marginBottom:3,lineHeight:1.75}}>{el}</p>;
+    if (line.startsWith('- ') || line.startsWith('・')) {
+      return (
+        <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 3, paddingLeft: 4 }}>
+          <span style={{ color: accent, flexShrink: 0 }}>·</span>
+          <span>{parts}</span>
+        </div>
+      );
+    }
+    return <p key={i} style={{ marginBottom: 3, lineHeight: 1.78 }}>{parts}</p>;
   });
 }
 
+/* ── タイピングアニメーション ── */
 function TypingDots({ accent }) {
   return (
-    <div style={{display:'flex',gap:5,padding:'4px 0',alignItems:'center'}}>
-      {[0,1,2].map(i => <div key={i} style={{width:7,height:7,borderRadius:'50%',background:accent,animation:`bounce 1.2s ${i*0.2}s ease-in-out infinite`}}/>)}
+    <div style={{ display: 'flex', gap: 5, padding: '4px 0', alignItems: 'center' }}>
+      {[0, 1, 2].map(i => (
+        <div key={i} style={{
+          width: 7, height: 7, borderRadius: '50%', background: accent,
+          animation: `bounce 1.2s ${i * 0.2}s ease-in-out infinite`
+        }} />
+      ))}
       <style>{`@keyframes bounce{0%,80%,100%{transform:translateY(0)}40%{transform:translateY(-6px)}}`}</style>
     </div>
   );
 }
 
+/* ── ペイウォールモーダル ── */
 function PaywallModal({ t, onClose }) {
   return (
-    <div style={{position:'fixed',inset:0,background:'#00000088',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200,backdropFilter:'blur(10px)'}}>
-      <div style={{background:t.bg2,border:`1px solid ${t.border}`,borderRadius:20,padding:'44px 40px',maxWidth:420,width:'90%',textAlign:'center'}}>
-        <div style={{width:60,height:60,borderRadius:'50%',margin:'0 auto 20px',background:`linear-gradient(135deg,${t.accent},${t.violet})`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:26}}>⛸</div>
-        <h2 style={{color:t.text,fontSize:22,fontWeight:700,marginBottom:10,letterSpacing:'-0.02em'}}>無料トライアル終了</h2>
-        <p style={{color:t.muted,fontSize:14,lineHeight:1.75,marginBottom:28,fontFamily:"'Noto Sans JP',sans-serif"}}>3回の無料質問をご利用いただきました。<br/>月額500円〜でARIAと無制限に会話できます。</p>
-        <a href="Pricing.html" style={{display:'block',background:t.accent,color:t.bg2,padding:'14px 0',borderRadius:10,fontWeight:700,fontSize:15,textDecoration:'none',marginBottom:12,fontFamily:"'Noto Sans JP',sans-serif"}}>料金プランを見る →</a>
-        <button onClick={onClose} style={{background:'transparent',border:`1px solid ${t.border}`,color:t.muted,padding:'12px 0',borderRadius:10,fontSize:14,cursor:'pointer',width:'100%',fontFamily:"'Noto Sans JP',sans-serif"}}>あとで</button>
+    <div style={{ position: 'fixed', inset: 0, background: '#00000044', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, backdropFilter: 'blur(10px)' }}>
+      <div style={{ background: 'white', border: `1px solid ${t.border}`, borderRadius: 20, padding: '44px 40px', maxWidth: 420, width: '90%', textAlign: 'center', boxShadow: '0 20px 60px oklch(0.45 0.01 240 / 0.15)' }}>
+        <div style={{ width: 60, height: 60, borderRadius: '50%', margin: '0 auto 20px', background: `linear-gradient(135deg,${t.accent},${t.violet})`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26 }}>⛸</div>
+        <h2 style={{ color: t.text, fontSize: 22, fontWeight: 700, marginBottom: 10, letterSpacing: '-0.02em' }}>無料トライアル終了</h2>
+        <p style={{ color: t.muted, fontSize: 14, lineHeight: 1.75, marginBottom: 28, fontFamily: "'Noto Sans JP',sans-serif" }}>
+          3回の無料質問をご利用いただきました。<br />月額500円〜でARIAと無制限に会話できます。
+        </p>
+        <a href="Pricing.html" style={{ display: 'block', background: t.accent, color: 'white', padding: '14px 0', borderRadius: 10, fontWeight: 700, fontSize: 15, textDecoration: 'none', marginBottom: 12, fontFamily: "'Noto Sans JP',sans-serif" }}>
+          料金プランを見る →
+        </a>
+        <button onClick={onClose} style={{ background: 'transparent', border: `1px solid ${t.border}`, color: t.muted, padding: '12px 0', borderRadius: 10, fontSize: 14, cursor: 'pointer', width: '100%', fontFamily: "'Noto Sans JP',sans-serif" }}>
+          あとで
+        </button>
       </div>
     </div>
   );
 }
 
+/* ── メインアプリ ── */
 function App() {
   const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
-  const t = THEMES[tweaks.theme] || THEMES.ice;
+  const t = THEMES[tweaks.theme] || THEMES.arctic;
 
+  /* 状態の初期化（localStorage から復元） */
   const initMsgs = () => {
-    try { const s = localStorage.getItem(STORAGE_KEY); if (s) return JSON.parse(s); } catch(e) {}
-    return [{id:0,role:'ai',text:`こんにちは！フィギュアスケートのことなら何でも聞いてください⛸\n\nジャンプの技術、選手のこと、採点ルールまで競技者視点でお答えします。今日はどんなことが気になりますか？`}];
+    try {
+      const s = localStorage.getItem(MSG_KEY);
+      if (s) return JSON.parse(s);
+    } catch (e) {}
+    return [{
+      id: 0, role: 'ai',
+      text: 'こんにちは！フィギュアスケートのことなら何でも聞いてください⛸\n\nジャンプの技術、選手のこと、採点ルールまで競技者視点でお答えします。今日はどんなことが気になりますか？'
+    }];
   };
-  const initCount = () => { try { return parseInt(localStorage.getItem(COUNT_KEY)||'0'); } catch(e){ return 0; } };
+  const initCount = () => { try { return parseInt(localStorage.getItem(COUNT_KEY) || '0'); } catch (e) { return 0; } };
+  const initHist  = () => { try { const s = localStorage.getItem(HIST_KEY); return s ? JSON.parse(s) : []; } catch (e) { return []; } };
 
-  const [messages, setMessages] = useState(initMsgs);
-  const [input, setInput] = useState('');
-  const [typing, setTyping] = useState(false);
-  const [freeCount, setFreeCount] = useState(initCount);
+  const [messages,    setMessages]    = useState(initMsgs);
+  const [chatHistory, setChatHistory] = useState(initHist);
+  const [input,       setInput]       = useState('');
+  const [typing,      setTyping]      = useState(false);
+  const [freeCount,   setFreeCount]   = useState(initCount);
   const [showPaywall, setShowPaywall] = useState(false);
+  const [error,       setError]       = useState('');
+
   const bottomRef = useRef(null);
-  const inputRef = useRef(null);
+  const inputRef  = useRef(null);
 
-  useEffect(() => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(messages)); } catch(e){} }, [messages]);
-  useEffect(() => { try { localStorage.setItem(COUNT_KEY, String(freeCount)); } catch(e){} }, [freeCount]);
-  useEffect(() => { if (bottomRef.current) bottomRef.current.parentElement.scrollTop = 999999; }, [messages, typing]);
+  /* 永続化 */
+  useEffect(() => { try { localStorage.setItem(MSG_KEY,   JSON.stringify(messages));    } catch (e) {} }, [messages]);
+  useEffect(() => { try { localStorage.setItem(COUNT_KEY, String(freeCount));           } catch (e) {} }, [freeCount]);
+  useEffect(() => { try { localStorage.setItem(HIST_KEY,  JSON.stringify(chatHistory)); } catch (e) {} }, [chatHistory]);
 
+  /* 自動スクロール */
+  useEffect(() => {
+    if (bottomRef.current) {
+      bottomRef.current.parentElement.scrollTop = bottomRef.current.parentElement.scrollHeight;
+    }
+  }, [messages, typing]);
+
+  /* 送信 */
   const send = async (text) => {
-  const q = (text || input).trim();
-  if (!q) return;
-  if (freeCount >= FREE_LIMIT) { setShowPaywall(true); return; }
+    const q = (text || input).trim();
+    if (!q || typing) return;
+    if (freeCount >= FREE_LIMIT) { setShowPaywall(true); return; }
 
-  const newCount = freeCount + 1;
-  setFreeCount(newCount);
-  setInput('');
-  setMessages(prev => [...prev, { id: Date.now(), role: 'user', text: q }]);
-  setTyping(true);
+    const newCount = freeCount + 1;
+    setFreeCount(newCount);
+    setInput('');
+    setError('');
+    setMessages(prev => [...prev, { id: Date.now(), role: 'user', text: q }]);
+    setTyping(true);
 
-  try {
-    const res = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: q, history: chatHistory })
-    });
-    const data = await res.json();
-    setTyping(false);
-    setMessages(prev => [...prev, { id: Date.now() + 1, role: 'ai', text: data.text }]);
-    setChatHistory(data.history);
-    if (newCount >= FREE_LIMIT) setTimeout(() => setShowPaywall(true), 1200);
-  } catch (err) {
-    setTyping(false);
-    setMessages(prev => [...prev, { id: Date.now() + 1, role: 'ai', text: '通信エラーが発生しました。もう一度お試しください。' }]);
-  }
-};
+    try {
+      const res = await fetch('https://f-igure-skate-a-ichat.vercel.app/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: q, history: chatHistory })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) throw new Error(data.error || 'APIエラーが発生しました');
+
+      setTyping(false);
+      setMessages(prev => [...prev, { id: Date.now() + 1, role: 'ai', text: data.text }]);
+      setChatHistory(data.history);
+
+      if (newCount >= FREE_LIMIT) setTimeout(() => setShowPaywall(true), 1400);
+
+    } catch (err) {
+      setTyping(false);
+      setError('通信エラーが発生しました。もう一度お試しください。');
+      setFreeCount(prev => prev - 1); // 失敗時はカウントを戻す
+    }
+  };
 
   const remaining = FREE_LIMIT - freeCount;
+  const isPremium = freeCount >= FREE_LIMIT;
 
   return (
-    <div style={{display:'flex',height:'100vh',overflow:'hidden',background:t.bg,color:t.text}}>
-      {/* Sidebar */}
-      <div style={{width:256,background:t.bg2,borderRight:`1px solid ${t.border}`,display:'flex',flexDirection:'column',flexShrink:0}}>
-        <div style={{padding:'22px 20px 16px',borderBottom:`1px solid ${t.border}`}}>
-          <a href="Landing Page.html" style={{textDecoration:'none'}}>
-            <div style={{fontSize:16,fontWeight:700,color:t.text,marginBottom:2}}>Figure<span style={{color:t.accent}}>Skate</span>AI</div>
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: t.bg, color: t.text }}>
+
+      {/* ── サイドバー ── */}
+      <div style={{ width: 252, background: 'white', borderRight: `1px solid ${t.border}`, display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+        <div style={{ padding: '20px 18px 14px', borderBottom: `1px solid ${t.border}` }}>
+          <a href="Landing Page.html" style={{ textDecoration: 'none' }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: t.text, marginBottom: 2 }}>
+              Figure<span style={{ color: t.accent }}>Skate</span>AI
+            </div>
           </a>
-          <div style={{fontSize:11,color:t.muted}}>AIコーチ {tweaks.ariaName}</div>
+          <div style={{ fontSize: 11, color: t.muted }}>AIコーチ ARIA</div>
         </div>
-        <div style={{padding:'14px 12px 8px',flex:1}}>
-          <div style={{fontSize:11,color:t.muted,letterSpacing:'0.06em',marginBottom:10,fontWeight:600,paddingLeft:8}}>よく聞かれる質問</div>
-          {SUGGESTIONS.map((s,i) => (
-            <button key={i} onClick={() => { setInput(s); inputRef.current?.focus(); }} style={{display:'block',width:'100%',textAlign:'left',background:'transparent',border:'none',cursor:'pointer',padding:'8px 10px',borderRadius:7,marginBottom:3,color:t.muted,fontSize:13,fontFamily:"'Noto Sans JP',sans-serif",transition:'all 0.15s'}}
-              onMouseEnter={e => { e.currentTarget.style.background=`${t.accent}18`; e.currentTarget.style.color=t.text; }}
-              onMouseLeave={e => { e.currentTarget.style.background='transparent'; e.currentTarget.style.color=t.muted; }}>
+
+        <div style={{ padding: '12px 10px 8px', flex: 1 }}>
+          <div style={{ fontSize: 11, color: t.muted, letterSpacing: '0.06em', marginBottom: 8, fontWeight: 600, paddingLeft: 8 }}>
+            よく聞かれる質問
+          </div>
+          {SUGGESTIONS.map((s, i) => (
+            <button key={i}
+              onClick={() => { setInput(s); inputRef.current?.focus(); }}
+              style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', cursor: 'pointer', padding: '8px 10px', borderRadius: 7, marginBottom: 2, color: t.muted, fontSize: 13, fontFamily: "'Noto Sans JP',sans-serif", transition: 'all 0.15s' }}
+              onMouseEnter={e => { e.currentTarget.style.background = `${t.accent}12`; e.currentTarget.style.color = t.text; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = t.muted; }}
+            >
               {s}
             </button>
           ))}
         </div>
-        <div style={{padding:'14px 16px',borderTop:`1px solid ${t.border}`}}>
-          <a href="Pricing.html" style={{display:'block',background:t.accent,color:t.bg2,padding:'11px 0',borderRadius:8,textAlign:'center',fontWeight:700,fontSize:13,textDecoration:'none',fontFamily:"'Noto Sans JP',sans-serif"}}>プレミアムにアップグレード</a>
+
+        <div style={{ padding: '14px 14px 18px', borderTop: `1px solid ${t.border}` }}>
+          <a href="Pricing.html" style={{ display: 'block', background: t.accent, color: 'white', padding: '11px 0', borderRadius: 8, textAlign: 'center', fontWeight: 700, fontSize: 13, textDecoration: 'none', fontFamily: "'Noto Sans JP',sans-serif" }}>
+            プレミアムにアップグレード
+          </a>
         </div>
       </div>
 
-      {/* Main */}
-      <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
-        {/* Top bar */}
-        <div style={{padding:'16px 28px',borderBottom:`1px solid ${t.border}`,display:'flex',alignItems:'center',justifyContent:'space-between',background:t.bg,flexShrink:0}}>
-          <div style={{display:'flex',alignItems:'center',gap:12}}>
-            <div style={{width:36,height:36,borderRadius:'50%',background:`linear-gradient(135deg,${t.accent},${t.violet})`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,fontWeight:700,color:'white'}}>AR</div>
-            <div>
-              <div style={{fontSize:14,fontWeight:600,color:t.text}}>{tweaks.ariaName}</div>
-              <div style={{fontSize:11,color:t.accent}}>元フィギュアスケート選手 / AIテクニカルコーチ</div>
-            </div>
-          </div>
-          {tweaks.showFreeCounter && freeCount < FREE_LIMIT ? (
-            <div style={{background:`${t.accent}1a`,border:`1px solid ${t.accent}33`,borderRadius:100,padding:'5px 14px',display:'flex',alignItems:'center',gap:8}}>
-              <div style={{display:'flex',gap:4}}>
-                {[0,1,2].map(i => <div key={i} style={{width:8,height:8,borderRadius:'50%',background:i<remaining?t.accent:t.border}}/>)}
-              </div>
-              <span style={{fontSize:12,color:t.accent,fontFamily:"'Noto Sans JP',sans-serif"}}>残り{remaining}回 無料</span>
-            </div>
-          ) : freeCount >= FREE_LIMIT ? (
-            <a href="Pricing.html" style={{background:t.accent,color:t.bg2,padding:'7px 18px',borderRadius:8,fontSize:13,fontWeight:700,textDecoration:'none',fontFamily:"'Noto Sans JP',sans-serif"}}>アップグレード</a>
-          ) : null}
+      {/* ── メインエリア ── */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+
+        {/* 開発者リセットバー */}
+        <div style={{ background: 'oklch(0.96 0.03 90)', borderBottom: `1px solid oklch(0.88 0.05 90)`, padding: '6px 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+          <span style={{ fontSize: 12, color: 'oklch(0.45 0.08 90)', fontFamily: "'Noto Sans JP',sans-serif" }}>🛠 開発者モード</span>
+          <button onClick={() => { localStorage.removeItem(COUNT_KEY); localStorage.removeItem(MSG_KEY); localStorage.removeItem(HIST_KEY); location.reload(); }}
+            style={{ fontSize: 12, color: 'oklch(0.45 0.08 90)', background: 'transparent', border: '1px solid oklch(0.78 0.06 90)', borderRadius: 6, padding: '3px 12px', cursor: 'pointer', fontFamily: "'Noto Sans JP',sans-serif" }}>
+            カウントをリセット
+          </button>
         </div>
 
-        {/* Messages */}
-        <div style={{flex:1,overflowY:'auto',padding:'28px 0'}}>
-          <div style={{maxWidth:720,margin:'0 auto',padding:'0 28px'}}>
+        {/* トップバー */}
+        <div style={{ padding: '14px 28px', borderBottom: `1px solid ${t.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'white', flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ width: 36, height: 36, borderRadius: '50%', background: `linear-gradient(135deg,${t.accent},${t.violet})`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: 'white' }}>AR</div>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: t.text }}>ARIA</div>
+              <div style={{ fontSize: 11, color: t.accent }}>元フィギュアスケート選手 / AIテクニカルコーチ</div>
+            </div>
+          </div>
+
+          {!isPremium ? (
+            <div style={{ background: `${t.accent}12`, border: `1px solid ${t.accent}30`, borderRadius: 100, padding: '5px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ display: 'flex', gap: 4 }}>
+                {[0, 1, 2].map(i => <div key={i} style={{ width: 8, height: 8, borderRadius: '50%', background: i < remaining ? t.accent : t.border }} />)}
+              </div>
+              <span style={{ fontSize: 12, color: t.accent, fontFamily: "'Noto Sans JP',sans-serif" }}>残り{remaining}回 無料</span>
+            </div>
+          ) : (
+            <a href="Pricing.html" style={{ background: t.accent, color: 'white', padding: '7px 18px', borderRadius: 8, fontSize: 13, fontWeight: 700, textDecoration: 'none', fontFamily: "'Noto Sans JP',sans-serif" }}>
+              アップグレード
+            </a>
+          )}
+        </div>
+
+        {/* メッセージ一覧 */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '28px 0' }}>
+          <div style={{ maxWidth: 720, margin: '0 auto', padding: '0 28px' }}>
             {messages.map(m => (
-              <div key={m.id} style={{display:'flex',flexDirection:m.role==='user'?'row-reverse':'row',gap:14,marginBottom:24,alignItems:'flex-start'}}>
-                {m.role==='ai' && (
-                  <div style={{width:32,height:32,borderRadius:'50%',flexShrink:0,background:`linear-gradient(135deg,${t.accent},${t.violet})`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:'white',marginTop:4}}>AR</div>
+              <div key={m.id} style={{ display: 'flex', flexDirection: m.role === 'user' ? 'row-reverse' : 'row', gap: 12, marginBottom: 22, alignItems: 'flex-start' }}>
+                {m.role === 'ai' && (
+                  <div style={{ width: 32, height: 32, borderRadius: '50%', flexShrink: 0, background: `linear-gradient(135deg,${t.accent},${t.violet})`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: 'white', marginTop: 4 }}>AR</div>
                 )}
-                <div style={{maxWidth:'80%',background:m.role==='user'?`${t.accent}22`:t.bg2,border:m.role==='user'?`1px solid ${t.accent}44`:`1px solid ${t.border}`,borderRadius:m.role==='user'?'16px 16px 4px 16px':'4px 16px 16px 16px',padding:'13px 17px',fontSize:14,fontFamily:"'Noto Sans JP',sans-serif",color:t.text,lineHeight:1.7}}>
-                  {m.role==='ai' ? renderMD(m.text, t.accent, t.text) : m.text}
+                <div style={{
+                  maxWidth: '80%',
+                  background: m.role === 'user' ? t.userBub : 'white',
+                  border: m.role === 'user' ? 'none' : `1px solid ${t.border}`,
+                  borderRadius: m.role === 'user' ? '16px 16px 4px 16px' : '4px 16px 16px 16px',
+                  padding: '12px 16px',
+                  fontSize: 14,
+                  fontFamily: "'Noto Sans JP',sans-serif",
+                  color: m.role === 'user' ? t.userTxt : t.text,
+                  lineHeight: 1.7,
+                  boxShadow: m.role === 'ai' ? '0 1px 4px oklch(0.45 0.01 240 / 0.06)' : 'none',
+                }}>
+                  {m.role === 'ai' ? renderMD(m.text, t.accent, t.text) : m.text}
                 </div>
               </div>
             ))}
+
             {typing && (
-              <div style={{display:'flex',gap:14,marginBottom:24,alignItems:'flex-start'}}>
-                <div style={{width:32,height:32,borderRadius:'50%',flexShrink:0,background:`linear-gradient(135deg,${t.accent},${t.violet})`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:'white',marginTop:4}}>AR</div>
-                <div style={{background:t.bg2,border:`1px solid ${t.border}`,borderRadius:'4px 16px 16px 16px',padding:'14px 18px'}}><TypingDots accent={t.accent}/></div>
+              <div style={{ display: 'flex', gap: 12, marginBottom: 22, alignItems: 'flex-start' }}>
+                <div style={{ width: 32, height: 32, borderRadius: '50%', flexShrink: 0, background: `linear-gradient(135deg,${t.accent},${t.violet})`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: 'white', marginTop: 4 }}>AR</div>
+                <div style={{ background: 'white', border: `1px solid ${t.border}`, borderRadius: '4px 16px 16px 16px', padding: '14px 18px', boxShadow: '0 1px 4px oklch(0.45 0.01 240 / 0.06)' }}>
+                  <TypingDots accent={t.accent} />
+                </div>
               </div>
             )}
-            <div ref={bottomRef}/>
+
+            {error && (
+              <div style={{ textAlign: 'center', padding: '8px 16px', color: 'oklch(0.50 0.15 25)', fontSize: 13, fontFamily: "'Noto Sans JP',sans-serif", background: 'oklch(0.97 0.03 25)', border: '1px solid oklch(0.88 0.05 25)', borderRadius: 8, marginBottom: 16 }}>
+                {error}
+              </div>
+            )}
+
+            <div ref={bottomRef} />
           </div>
         </div>
 
-        {/* Input */}
-        <div style={{padding:'14px 28px 22px',background:t.bg,borderTop:`1px solid ${t.border}`,flexShrink:0}}>
-          <div style={{maxWidth:720,margin:'0 auto'}}>
-            <div style={{display:'flex',gap:12,alignItems:'flex-end',background:t.bg2,border:`1px solid ${t.border}`,borderRadius:12,padding:'11px 13px'}}>
-              <textarea ref={inputRef} value={input} onChange={e=>setInput(e.target.value)}
-                onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}}}
-                placeholder="ARIAに質問する… (例：「アクセルジャンプって何？」)"
-                disabled={freeCount>=FREE_LIMIT}
-                style={{flex:1,background:'transparent',border:'none',outline:'none',color:t.text,fontSize:14,resize:'none',maxHeight:120,fontFamily:"'Noto Sans JP',sans-serif",lineHeight:1.65,minHeight:24}}
+        {/* 入力エリア */}
+        <div style={{ padding: '12px 28px 20px', background: 'white', borderTop: `1px solid ${t.border}`, flexShrink: 0 }}>
+          <div style={{ maxWidth: 720, margin: '0 auto' }}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', background: t.bg, border: `1px solid ${t.border}`, borderRadius: 12, padding: '10px 12px', transition: 'border-color 0.2s' }}>
+              <textarea
+                ref={inputRef}
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
+                placeholder={isPremium ? 'アップグレードしてARIAに質問する…' : 'ARIAに質問する… (例：「アクセルジャンプって何？」)'}
+                disabled={isPremium || typing}
+                style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', color: t.text, fontSize: 14, resize: 'none', maxHeight: 120, fontFamily: "'Noto Sans JP',sans-serif", lineHeight: 1.65, minHeight: 24 }}
                 rows={1}
               />
-              <button onClick={()=>send()} disabled={!input.trim()||freeCount>=FREE_LIMIT} style={{width:36,height:36,borderRadius:8,border:'none',cursor:'pointer',background:input.trim()&&freeCount<FREE_LIMIT?t.accent:t.border,display:'flex',alignItems:'center',justifyContent:'center',transition:'background 0.2s',flexShrink:0}}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={t.bg2} strokeWidth="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+              <button
+                onClick={() => send()}
+                disabled={!input.trim() || isPremium || typing}
+                style={{ width: 36, height: 36, borderRadius: 8, border: 'none', cursor: input.trim() && !isPremium && !typing ? 'pointer' : 'default', background: input.trim() && !isPremium && !typing ? t.accent : t.border, display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 0.2s', flexShrink: 0 }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
+                  <line x1="22" y1="2" x2="11" y2="13"/>
+                  <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                </svg>
               </button>
             </div>
-            <p style={{fontSize:11,color:t.muted,marginTop:7,textAlign:'center',fontFamily:"'Noto Sans JP',sans-serif"}}>
-              {freeCount<FREE_LIMIT ? `無料で残り${remaining}回質問できます · Enter で送信 · Shift+Enter で改行` : '無料トライアル終了 — アップグレードして無制限に質問できます'}
+            <p style={{ fontSize: 11, color: t.muted, marginTop: 6, textAlign: 'center', fontFamily: "'Noto Sans JP',sans-serif" }}>
+              {isPremium
+                ? '無料トライアル終了 — アップグレードして無制限に質問できます'
+                : `無料で残り${remaining}回質問できます · Enter で送信 · Shift+Enter で改行`}
             </p>
           </div>
         </div>
       </div>
 
-      {showPaywall && <PaywallModal t={t} onClose={()=>setShowPaywall(false)}/>}
+      {showPaywall && <PaywallModal t={t} onClose={() => setShowPaywall(false)} />}
 
       <TweaksPanel>
-        <TweakSection label="カラーテーマ">
-          <TweakRadio id="theme" value={tweaks.theme}
-            options={[{value:'ice',label:'❄️ アイスブルー'},{value:'midnight',label:'🌙 ミッドナイト紫'},{value:'arctic',label:'☁️ アークティック白'}]}
-            onChange={v=>setTweak('theme',v)}/>
-        </TweakSection>
-        <TweakSection label="AIコーチ名">
-          <TweakText id="ariaName" value={tweaks.ariaName} onChange={v=>setTweak('ariaName',v)}/>
-        </TweakSection>
-        <TweakSection label="無料カウンター">
-          <TweakToggle id="showFreeCounter" value={tweaks.showFreeCounter} label="表示する" onChange={v=>setTweak('showFreeCounter',v)}/>
+        <TweakSection label="開発者ツール">
+          <TweakButton label="🔄 無料カウントをリセット" onClick={() => {
+            localStorage.removeItem(COUNT_KEY);
+            localStorage.removeItem(MSG_KEY);
+            localStorage.removeItem(HIST_KEY);
+            location.reload();
+          }} />
         </TweakSection>
         <TweakSection label="ページ移動">
-          <TweakButton label="🏠 ランディングページ" onClick={()=>location.href='Landing Page.html'}/>
-          <TweakButton label="💳 料金ページ" onClick={()=>location.href='Pricing.html'}/>
+          <TweakButton label="🏠 ランディングページ" onClick={() => location.href = 'Landing Page.html'} />
+          <TweakButton label="💳 料金ページ" onClick={() => location.href = 'Pricing.html'} />
         </TweakSection>
       </TweaksPanel>
     </div>
